@@ -1,279 +1,252 @@
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:appliformulaire/models/session_utilisateur.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.56.1:8000/api';
+  static const String baseUrl = 'http://localhost:8000';
 
-  static final Dio dio = Dio(
-    BaseOptions(
-      baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-    ),
-  )..interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      logPrint: (obj) => debugPrint(obj.toString()),
-    ));
+  static final Dio dio =
+      Dio(
+          BaseOptions(
+            baseUrl: baseUrl,
+            connectTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 30),
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          ),
+        )
+        ..interceptors.add(
+          LogInterceptor(
+            requestBody: true,
+            responseBody: true,
+            logPrint: (obj) => debugPrint(obj.toString()),
+          ),
+        )
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onError: (DioException e, handler) {
+              if (e.response?.data != null && e.response?.data is Map) {
+                final data = e.response?.data;
+                String message = data['message'] ?? 'Erreur inconnue';
 
-  // Stocker le token
+                if (data['errors'] != null && data['errors'] is Map) {
+                  final errors = data['errors'] as Map;
+                  if (errors.isNotEmpty) {
+                    // Prends la toute première ligne d'erreur de validation
+                    final firstKey = errors.keys.first;
+                    message = errors[firstKey][0].toString();
+                  }
+                }
+
+                // Traduction manuelle basique pour les messages Laravel communs
+                final lowerMessage = message.toLowerCase();
+                if (lowerMessage.contains("has already been taken")) {
+                  message = "Cet email est déjà lié à un compte existant.";
+                } else if (lowerMessage.contains("selected email is invalid")) {
+                  message = "Aucun compte trouvé avec cet email.";
+                } else if (lowerMessage.contains("must be a valid email")) {
+                  message = "Email invalide.";
+                } else if (lowerMessage.contains("password")) {
+                  message =
+                      "Le mot de passe ne correspond pas ou est incorrect.";
+                }
+
+                throw Exception(message);
+              }
+              return handler.next(e);
+            },
+          ),
+        );
+
+  // ================= TOKEN =================
+
   static void setToken(String token) {
     dio.options.headers['Authorization'] = 'Bearer $token';
-    debugPrint('Token configuré: $token');
   }
 
-  // Inscription
   static Future<Map<String, dynamic>> register({
     required String firstName,
     required String lastName,
     required String email,
     required String password,
+    String? dateOfBirth,
+    String? gender,
+    String? nationality,
+    String? phone,
   }) async {
-    try {
-      debugPrint('Envoi inscription: $email');
-      
-      final response = await dio.post(
-        '/register',
-        data: {
-          'first_name': firstName,
-          'last_name': lastName,
-          'email': email,
-          'password': password,
-          'password_confirmation': password,
-        },
-      );
+    final response = await dio.post(
+      '/api/register',
+      data: {
+        'first_name': firstName,
+        'last_name': lastName,
+        'email': email,
+        'password': password,
+        'password_confirmation': password,
+        if (dateOfBirth != null) 'date_of_birth': dateOfBirth,
+        if (gender != null) 'gender': gender,
+        if (nationality != null) 'nationality': nationality,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      },
+    );
 
-      debugPrint('Réponse inscription: ${response.statusCode}');
-      
-      if (response.statusCode == 201) {
-        final data = response.data;
-        if (data['token'] != null) {
-          setToken(data['token']);
-        }
-        return data;
-      } else {
-        throw Exception(response.data['message'] ?? 'Erreur inscription');
-      }
-    } on DioException catch (e) {
-      debugPrint('Erreur Dio: ${e.type}');
-      debugPrint('Message: ${e.message}');
-      debugPrint('Response: ${e.response?.data}');
-      
-      if (e.response != null) {
-        final errorData = e.response!.data;
-        if (errorData is Map && errorData['message'] != null) {
-          throw Exception(errorData['message']);
-        } else if (errorData is Map && errorData['errors'] != null) {
-          final errors = errorData['errors'] as Map;
-          final firstError = errors.values.first;
-          throw Exception(firstError is List ? firstError.first : firstError);
-        }
-      }
-      
-      // Erreurs réseau
-      if (e.type == DioExceptionType.connectionTimeout) {
-        throw Exception('Délai de connexion dépassé. Vérifiez votre serveur Laravel.');
-      } else if (e.type == DioExceptionType.receiveTimeout) {
-        throw Exception('Délai de réception dépassé.');
-      } else if (e.type == DioExceptionType.connectionError) {
-        throw Exception('Impossible de se connecter au serveur. Vérifiez l\'URL et que Laravel tourne.');
-      }
-      
-      throw Exception('Erreur réseau: ${e.message}');
-    } catch (e) {
-      debugPrint('Erreur inattendue: $e');
-      throw Exception('Erreur inattendue: $e');
+    final data = response.data;
+
+    if (data['token'] != null) {
+      setToken(data['token']);
     }
+
+    return data;
   }
 
-  // Vérification email après inscription
-  static Future<Map<String, dynamic>> verifyEmail({
-    required String email,
-    required String code,
-  }) async {
-    try {
-      debugPrint('Vérification code pour: $email');
-      
-      final response = await dio.post(
-        '/verify-email',
-        data: {
-          'email': email,
-          'code': code,
-        },
-      );
-
-      debugPrint('Code vérifié: ${response.statusCode}');
-      return response.data;
-    } on DioException catch (e) {
-      debugPrint('Erreur vérification code: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      throw Exception('Erreur de vérification');
-    }
-  }
-
-  // Connexion
   static Future<Map<String, dynamic>> login({
     required String email,
     required String password,
   }) async {
-    try {
-      debugPrint('Connexion: $email');
-      
-      final response = await dio.post(
-        '/login',
-        data: {
-          'email': email,
-          'password': password,
-        },
-      );
+    final response = await dio.post(
+      '/api/login',
+      data: {'email': email, 'password': password},
+    );
 
-      debugPrint('Connexion réussie: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data['token'] != null) {
-          setToken(data['token']);
-        }
-        return data;
-      } else {
-        throw Exception(response.data['message'] ?? 'Erreur connexion');
-      }
-    } on DioException catch (e) {
-      debugPrint('Erreur connexion: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      
-      if (e.type == DioExceptionType.connectionError) {
-        throw Exception('Impossible de se connecter au serveur');
-      }
-      
-      throw Exception('Erreur de connexion');
+    final data = response.data;
+
+    if (data['token'] != null) {
+      setToken(data['token']);
     }
+
+    SessionUtilisateur().setDepuisLogin(data);
+
+    return data;
   }
 
-  // Mot de passe oublié - Demande du code OTP
-  static Future<Map<String, dynamic>> forgotPassword({
-    required String email,
-  }) async {
-    try {
-      debugPrint(' Demande réinitialisation: $email');
-      
-      final response = await dio.post(
-        '/forgot-password',
-        data: {'email': email},
-      );
-
-      debugPrint('Code OTP envoyé');
-      return response.data;
-    } on DioException catch (e) {
-      debugPrint('Erreur mot de passe oublié: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      throw Exception('Erreur lors de l\'envoi du code');
-    }
+  static Future<void> logout() async {
+    await dio.post('/api/logout');
+    dio.options.headers.remove('Authorization');
+    SessionUtilisateur().vider();
   }
 
-  // Réinitialisation du mot de passe
-  static Future<Map<String, dynamic>> resetPassword({
+  // ================= ÉCOLES =================
+
+  static Future<Map<String, dynamic>> creerEcole(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await dio.post('/api/ecoles', data: data);
+    return response.data;
+  }
+
+  static Future<List<dynamic>> ecolesEnAttente() async {
+    final response = await dio.get('/api/ecoles/en-attente');
+    return response.data;
+  }
+
+  static Future<Map<String, dynamic>> activerEcole(int id) async {
+    final response = await dio.put('/api/ecoles/$id/activer');
+    return response.data;
+  }
+
+  static Future<void> refuserEcole(int id, String motif) async {
+    await dio.put('/api/ecoles/$id/refuser', data: {'motif': motif});
+  }
+
+  static Future<List<dynamic>> mesEcoles() async {
+    final response = await dio.get('/api/mes-ecoles');
+    return response.data;
+  }
+
+  static Future<List<dynamic>> getEcolesTraitees() async {
+    final response = await dio.get('/api/ecoles/traitees');
+    return response.data;
+  }
+
+  static Future<void> supprimerEcole(int id) async {
+    await dio.delete('/api/ecoles/$id');
+  }
+
+  static Future<Map<String, dynamic>> rejoindreEcole(
+    Map<String, dynamic> data,
+  ) async {
+    final response = await dio.post('/api/rejoindre', data: data);
+    return response.data;
+  }
+
+  // ================= CODES =================
+
+  static Future<Map<String, dynamic>> verifierCode(String code) async {
+    final response = await dio.post(
+      '/api/codes/verifier',
+      data: {'code': code},
+    );
+    return response.data;
+  }
+
+  static Future<Map<String, dynamic>> genererCode(
+    String role,
+    String destinataire,
+  ) async {
+    final response = await dio.post(
+      '/api/codes/generer',
+      data: {'role': role, 'destinataire': destinataire},
+    );
+    return response.data;
+  }
+
+  static Future<Map<String, dynamic>> regenererCode(int codeId) async {
+    final response = await dio.put('/api/codes/$codeId/regenerer');
+    return response.data;
+  }
+
+  static Future<List<dynamic>> mesCodes() async {
+    final response = await dio.get('/api/mes-codes');
+    return response.data;
+  }
+
+  // ================= DEMANDES =================
+
+  static Future<List<dynamic>> demandesEnAttente() async {
+    final response = await dio.get('/api/demandes-en-attente');
+    return response.data;
+  }
+
+  static Future<void> accepterDemande(int id) async {
+    await dio.put('/api/demandes/$id/accepter');
+  }
+
+  static Future<void> rejeterDemande(int id, String motif) async {
+    await dio.put('/api/demandes/$id/rejeter', data: {'motif': motif});
+  }
+
+  static Future<void> forgotPassword({required String email}) async {
+    await dio.post('/api/forgot-password', data: {'email': email});
+  }
+
+  static Future<void> resetPassword({
     required String email,
     required String otpCode,
     required String password,
   }) async {
-    try {
-      debugPrint('Réinitialisation mot de passe: $email');
-      
-      final response = await dio.post(
-        '/reset-password',
-        data: {
-          'email': email,
-          'otp_code': otpCode,
-          'password': password,
-          'password_confirmation': password,
-        },
-      );
-
-      debugPrint('Mot de passe réinitialisé');
-      return response.data;
-    } on DioException catch (e) {
-      debugPrint(' Erreur réinitialisation: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      throw Exception('Erreur lors de la réinitialisation');
-    }
+    await dio.post(
+      '/api/reset-password',
+      data: {
+        'email': email,
+        'code': otpCode,
+        'password': password,
+        'password_confirmation': password,
+      },
+    );
   }
 
-  // Déconnexion
-  static Future<void> logout() async {
-    try {
-      await dio.post('/logout');
-      dio.options.headers.remove('Authorization');
-      debugPrint('Déconnexion réussie');
-    } on DioException catch (e) {
-      debugPrint('Erreur déconnexion: ${e.message}');
-      // On supprime quand même le token localement
-      dio.options.headers.remove('Authorization');
-    }
-  }
-
-  // Renvoyer le code de vérification d'inscription
-  static Future<Map<String, dynamic>> resendVerificationCode({
+  static Future<void> verifyEmail({
     required String email,
+    required String code,
   }) async {
-    try {
-      debugPrint('Renvoi code vérification: $email');
-      
-      final response = await dio.post(
-        '/resend-verification-code',
-        data: {'email': email},
-      );
-
-      debugPrint('Code de vérification renvoyé');
-      return response.data;
-    } on DioException catch (e) {
-      debugPrint('Erreur renvoi code: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      throw Exception('Erreur lors du renvoi du code');
-    }
+    await dio.post('/api/verify-email', data: {'email': email, 'code': code});
   }
 
-  // Renvoyer le code de réinitialisation
-  static Future<Map<String, dynamic>> resendResetCode({
-    required String email,
-  }) async {
-    try {
-      debugPrint(' Renvoi code réinitialisation: $email');
-      
-      final response = await dio.post(
-        '/resend-reset-code',
-        data: {'email': email},
-      );
+  // ================= DASHBOARD =================
 
-      debugPrint(' Code de réinitialisation renvoyé');
-      return response.data;
-    } on DioException catch (e) {
-      debugPrint(' Erreur renvoi code: ${e.response?.data}');
-      
-      if (e.response != null && e.response!.data['message'] != null) {
-        throw Exception(e.response!.data['message']);
-      }
-      throw Exception('Erreur lors du renvoi du code');
-    }
+  static Future<Map<String, dynamic>> getDashboardAccueil() async {
+    final response = await dio.get('/api/dashboard');
+    return response.data;
   }
 }

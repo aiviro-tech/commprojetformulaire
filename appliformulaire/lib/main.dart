@@ -1,11 +1,58 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:appliformulaire/services/api_service.dart';
+import 'package:appliformulaire/models/session_utilisateur.dart';
+import 'package:appliformulaire/ecoles_page.dart';
+import 'package:appliformulaire/super_admin_page.dart';
+import 'package:appliformulaire/ecoles_selection_page.dart';
+import 'package:appliformulaire/rejoindre_ecole_page.dart';
+import 'package:appliformulaire/admin_dashboard_page.dart';
+
+class AppColors {
+  static const primary = Color(0xFF1565C0);
+  static const primaryLight = Color(0xFFE3F2FD);
+  static const secondary = Color(0xFF00897B);
+  static const background = Color(0xFFF5F7FA);
+  static const textMain = Color(0xFF1A1A2E);
+  static const textSub = Color(0xFF6B7280);
+  static const green = Color(0xFF2E7D32);
+  static const red = Color(0xFFC62828);
+  static const orange = Color(0xFFE65100);
+}
 
 void main() {
   runApp(
-    const MaterialApp(home: Connexion(), debugShowCheckedModeBanner: false),
+    MaterialApp(
+      home: const Connexion(),
+      debugShowCheckedModeBanner: false,
+      routes: {
+        '/ecoles-selection': (context) => const EcolesSelectionPage(),
+        '/rejoindre-ecole': (context) => const RejoindreEcolePage(),
+        '/creer-ecole': (context) => const EcolesPage(),
+        '/admin-dashboard': (context) => AdminDashboardPage(
+          ecoleId:
+              int.tryParse(
+                ModalRoute.of(context)?.settings.arguments as String? ?? '0',
+              ) ??
+              0,
+        ),
+      },
+      theme: ThemeData(
+        primaryColor: AppColors.primary,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -27,7 +74,6 @@ class _ConnexionState extends State<Connexion> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _isLoading = true);
 
     try {
@@ -38,13 +84,33 @@ class _ConnexionState extends State<Connexion> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Connexion réussie !'), backgroundColor: Colors.green),
-      );
+      SessionUtilisateur().setDepuisLogin(result);
+
+      // Super admin → page super admin
+      if (SessionUtilisateur().estSuperAdmin) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const SuperAdminPage()),
+          (route) => false,
+        );
+      } else {
+        // Tout le monde → page de sélection des écoles
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const EcolesSelectionPage()),
+          (route) => false,
+        );
+      }
     } catch (e) {
+      String errorMessage = e.toString();
+      if (e is DioException && e.error != null) {
+        errorMessage = e.error.toString();
+      }
+      errorMessage = errorMessage.replaceAll('Exception: ', '');
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(errorMessage), backgroundColor: AppColors.red),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -54,23 +120,57 @@ class _ConnexionState extends State<Connexion> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(30),
           child: Form(
             key: _formKey,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Text("Connexion", style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 30),
-                InputCustom(label: "Email", hint: "votre-email@gmail.com", isEmail: true, controller: _emailController),
+                const Text(
+                  "Connexion",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textMain,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Accédez à votre espace académique",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: AppColors.textSub),
+                ),
+                const SizedBox(height: 32),
+                InputCustom(
+                  label: "Email",
+                  hint: "votre-email@gmail.com",
+                  isEmail: true,
+                  controller: _emailController,
+                ),
                 const SizedBox(height: 15),
-                InputCustom(label: "Mot de passe", hint: "Saisir votre mot de passe", isPassword: true, controller: _passwordController),
+                InputCustom(
+                  label: "Mot de passe",
+                  hint: "Saisir votre mot de passe",
+                  isPassword: true,
+                  controller: _passwordController,
+                ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ForgotPasswordPage())),
-                    child: const Text("Mot de passe oublié ?", style: TextStyle(color: Colors.blue)),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ForgotPasswordPage(),
+                      ),
+                    ),
+                    child: const Text(
+                      "Mot de passe oublié ?",
+                      style: TextStyle(color: AppColors.primary),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -78,19 +178,39 @@ class _ConnexionState extends State<Connexion> {
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleLogin,
-                    child: _isLoading ? const CircularProgressIndicator() : const Text('Se connecter'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            'Se connecter',
+                            style: TextStyle(fontSize: 15),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 20),
                 Text.rich(
                   TextSpan(
                     text: "Pas de compte ? ",
-                    style: const TextStyle(color: Colors.black, fontSize: 14),
+                    style: const TextStyle(
+                      color: AppColors.textSub,
+                      fontSize: 14,
+                    ),
                     children: [
                       TextSpan(
                         text: "Inscrivez-vous",
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-                        recognizer: TapGestureRecognizer()..onTap = () => Navigator.push(context, MaterialPageRoute(builder: (context) => const Inscription())),
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const Inscription(),
+                            ),
+                          ),
                       ),
                     ],
                   ),
@@ -105,7 +225,7 @@ class _ConnexionState extends State<Connexion> {
 }
 
 // ==========================================
-// 2. RÉCUPÉRATION : ÉTAPE 1 (EMAIL)
+// 2. MOT DE PASSE OUBLIÉ
 // ==========================================
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -121,21 +241,32 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _handleSendCode() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
-
     try {
       await ApiService.forgotPassword(email: _emailController.text.trim());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Code envoyé par email !'), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text('Code envoyé par email !'),
+          backgroundColor: AppColors.green,
+        ),
       );
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => OtpResetPage(email: _emailController.text.trim())),
+        MaterialPageRoute(
+          builder: (context) =>
+              OtpResetPage(email: _emailController.text.trim()),
+        ),
       );
     } catch (e) {
+      String errorMessage = e.toString();
+      if (e is DioException && e.error != null) {
+        errorMessage = e.error.toString();
+      }
+      errorMessage = errorMessage.replaceAll('Exception: ', '');
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(errorMessage), backgroundColor: AppColors.red),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -145,23 +276,53 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Récupération")),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text("Récupération"),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(30),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Text("Réinitialisation", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              const Text(
+                "Réinitialisation",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "Entrez votre email pour recevoir un code",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSub, fontSize: 13),
+              ),
               const SizedBox(height: 30),
-              InputCustom(label: "Email", hint: "votre-email@gmail.com", isEmail: true, controller: _emailController),
+              InputCustom(
+                label: "Email",
+                hint: "votre-email@gmail.com",
+                isEmail: true,
+                controller: _emailController,
+              ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleSendCode,
-                  child: _isLoading ? const CircularProgressIndicator() : const Text("Envoyer le code"),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Envoyer le code"),
                 ),
               ),
             ],
@@ -173,7 +334,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 }
 
 // ==========================================
-// 3. RÉCUPÉRATION : ÉTAPE 2 (CODE OTP)
+// 3. OTP RESET
 // ==========================================
 class OtpResetPage extends StatefulWidget {
   final String email;
@@ -184,7 +345,10 @@ class OtpResetPage extends StatefulWidget {
 }
 
 class _OtpResetPageState extends State<OtpResetPage> {
-  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _controllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
   String _errorMessage = "";
   bool _isButtonEnabled = false;
   bool _isLoading = false;
@@ -193,17 +357,29 @@ class _OtpResetPageState extends State<OtpResetPage> {
   void initState() {
     super.initState();
     for (var c in _controllers) {
-      c.addListener(() => setState(() => _isButtonEnabled = _controllers.every((c) => c.text.length == 1)));
+      c.addListener(
+        () => setState(
+          () =>
+              _isButtonEnabled = _controllers.every((c) => c.text.length == 1),
+        ),
+      );
     }
   }
 
   Future<void> _verifyOtp() async {
     String codeSaisi = _controllers.map((e) => e.text).join();
+    if (codeSaisi.length != 6) {
+      setState(() => _errorMessage = 'Le code doit contenir 6 chiffres.');
+      return;
+    }
     setState(() => _isLoading = true);
     try {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => NewPasswordPage(email: widget.email, otpCode: codeSaisi)),
+        MaterialPageRoute(
+          builder: (context) =>
+              NewPasswordPage(email: widget.email, otpCode: codeSaisi),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -213,29 +389,53 @@ class _OtpResetPageState extends State<OtpResetPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Vérification")),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text("Vérification"),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(30.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Text("Vérification", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const Text(
+              "Vérification",
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMain,
+              ),
+            ),
             const SizedBox(height: 10),
-            const Text("Entrez le code à 6 chiffres reçu par email.", textAlign: TextAlign.center),
+            const Text(
+              "Entrez le code à 6 chiffres reçu par email.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSub),
+            ),
             const SizedBox(height: 30),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: List.generate(6, (index) => _otpBox(index))),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(6, (index) => _otpBox(index)),
+            ),
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty) ...[
-              Text(_errorMessage, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              Text(
+                _errorMessage,
+                style: const TextStyle(
+                  color: AppColors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 10),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
                   setState(() => _errorMessage = "");
-                  for (var c in _controllers) { c.clear(); }
+                  for (var c in _controllers) c.clear();
                   FocusScope.of(context).requestFocus(FocusNode());
                 },
-                child: const Text("Réessayer", style: TextStyle(color: Colors.white)),
+                child: const Text("Réessayer"),
               ),
             ],
             const SizedBox(height: 30),
@@ -243,8 +443,15 @@ class _OtpResetPageState extends State<OtpResetPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: (_isButtonEnabled && !_isLoading) ? _verifyOtp : null,
-                  child: _isLoading ? const CircularProgressIndicator() : const Text("Valider le code"),
+                  onPressed: (_isButtonEnabled && !_isLoading)
+                      ? _verifyOtp
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Valider le code"),
                 ),
               ),
           ],
@@ -264,18 +471,25 @@ class _OtpResetPageState extends State<OtpResetPage> {
         if (v.isNotEmpty && index < 5) FocusScope.of(context).nextFocus();
         if (v.isEmpty && index > 0) FocusScope.of(context).previousFocus();
       },
-      decoration: const InputDecoration(counterText: "", border: OutlineInputBorder()),
+      decoration: const InputDecoration(
+        counterText: "",
+        border: OutlineInputBorder(),
+      ),
     ),
   );
 }
 
 // ==========================================
-// 4. RÉCUPÉRATION : ÉTAPE 3 (NOUVEAU PASS)
+// 4. NOUVEAU MOT DE PASSE
 // ==========================================
 class NewPasswordPage extends StatefulWidget {
   final String email;
   final String otpCode;
-  const NewPasswordPage({super.key, required this.email, required this.otpCode});
+  const NewPasswordPage({
+    super.key,
+    required this.email,
+    required this.otpCode,
+  });
 
   @override
   State<NewPasswordPage> createState() => _NewPasswordPageState();
@@ -298,13 +512,26 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Mot de passe mis à jour !"), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text("Mot de passe mis à jour !"),
+          backgroundColor: AppColors.green,
+        ),
       );
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const Connexion()), (r) => false);
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const Connexion()),
+        (r) => false,
+      );
     } catch (e) {
+      String errorMessage = e.toString();
+      if (e is DioException && e.error != null) {
+        errorMessage = e.error.toString();
+      }
+      errorMessage = errorMessage.replaceAll('Exception: ', '');
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(errorMessage), backgroundColor: AppColors.red),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -314,36 +541,67 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Nouveau mot de passe")),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text("Nouveau mot de passe"),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(30),
         child: Form(
           key: _formKey,
           child: Column(
             children: [
-              const Text("Réinitialisation", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const Text(
+                "Réinitialisation",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMain,
+                ),
+              ),
               const SizedBox(height: 30),
-              InputCustom(label: "Nouveau mot de passe", hint: "Saisir le nouveau mot de passe", isPassword: true, controller: _passController),
+              InputCustom(
+                label: "Nouveau mot de passe",
+                hint: "Minimum 8 caractères",
+                isPassword: true,
+                controller: _passController,
+              ),
               const SizedBox(height: 15),
               InputCustom(
                 label: "Confirmer",
                 hint: "Confirmer le mot de passe",
                 isPassword: true,
                 controller: _confirmPassController,
-                validator: (v) => v != _passController.text ? "Les mots de passe ne correspondent pas" : null,
+                validator: (v) => v != _passController.text
+                    ? "Les mots de passe ne correspondent pas"
+                    : null,
               ),
               const SizedBox(height: 30),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleResetPassword,
-                  child: _isLoading ? const CircularProgressIndicator() : const Text("Enregistrer"),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Enregistrer"),
                 ),
               ),
               const SizedBox(height: 20),
               TextButton(
-                onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const Connexion()), (route) => false),
-                child: const Text("Ignorer", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const Connexion()),
+                  (route) => false,
+                ),
+                child: const Text(
+                  "Ignorer",
+                  style: TextStyle(color: AppColors.primary),
+                ),
               ),
             ],
           ),
@@ -354,7 +612,7 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
 }
 
 // ==========================================
-// 5. PAGE D'INSCRIPTION
+// 5. INSCRIPTION
 // ==========================================
 class Inscription extends StatefulWidget {
   const Inscription({super.key});
@@ -363,49 +621,108 @@ class Inscription extends StatefulWidget {
 }
 
 class _InscriptionState extends State<Inscription> {
+  final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
   final _passController = TextEditingController();
   final _confirmPassController = TextEditingController();
+  final _telephoneController = TextEditingController();
+  final _dateNaissanceController = TextEditingController();
+
+  String? _sexeSelectionne;
+  String? _nationaliteSelectionnee;
   bool _acceptTerms = false;
   bool _isLoading = false;
 
-  Future<void> _handleRegister() async {
-    if (!_formKey.currentState!.validate()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez remplir tous les champs'), backgroundColor: Colors.orange),
-      );
-      return;
+  final List<String> _nationalites = [
+    'Béninoise',
+    'Burkinabé',
+    'Camerounaise',
+    'Congolaise',
+    'Ivoirienne',
+    'Malienne',
+    'Nigérienne',
+    'Nigériane',
+    'Sénégalaise',
+    'Togolaise',
+    'Autre',
+  ];
+  final List<String> _sexes = ['Masculin', 'Féminin', 'Autre'];
+
+  Future<void> _choisirDate() async {
+    final DateTime? date = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2000),
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now().subtract(const Duration(days: 365 * 16)),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppColors.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (date != null) {
+      _dateNaissanceController.text =
+          '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
     }
+  }
+
+  Future<void> _handleRegister() async {
+    if (!_formKey.currentState!.validate()) return;
     if (!_acceptTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez accepter les conditions'), backgroundColor: Colors.orange),
+        const SnackBar(
+          content: Text('Veuillez accepter les conditions'),
+          backgroundColor: AppColors.orange,
+        ),
       );
       return;
     }
-
     setState(() => _isLoading = true);
     try {
+      // Mapper les valeurs du formulaire aux valeurs attendues par le backend
+      final String sexeValue = _sexeSelectionne == 'Masculin'
+          ? 'M'
+          : _sexeSelectionne == 'Féminin'
+          ? 'F'
+          : 'other';
+
       await ApiService.register(
         firstName: _firstNameController.text.trim(),
         lastName: _lastNameController.text.trim(),
         email: _emailController.text.trim(),
         password: _passController.text,
+        dateOfBirth: _dateNaissanceController.text,
+        gender: sexeValue,
+        nationality: _nationaliteSelectionnee ?? '',
+        phone: _telephoneController.text.trim(),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Inscription réussie ! Code OTP envoyé."), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text("Inscription réussie ! Code OTP envoyé."),
+          backgroundColor: AppColors.green,
+        ),
       );
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => ValidationInscription(email: _emailController.text.trim())),
+        MaterialPageRoute(
+          builder: (context) =>
+              ValidationInscription(email: _emailController.text.trim()),
+        ),
       );
     } catch (e) {
+      String errorMessage = e.toString();
+      if (e is DioException && e.error != null) {
+        errorMessage = e.error.toString();
+      }
+      errorMessage = errorMessage.replaceAll('Exception: ', '');
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+        SnackBar(content: Text(errorMessage), backgroundColor: AppColors.red),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -415,118 +732,256 @@ class _InscriptionState extends State<Inscription> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, foregroundColor: Colors.black),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: AppColors.textMain,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(30),
+        padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Text("Inscription", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 30),
-              InputCustom(label: "Nom", hint: "Votre nom", controller: _lastNameController),
-              const SizedBox(height: 15),
-              InputCustom(label: "Prénom", hint: "Votre prénom", controller: _firstNameController),
-              const SizedBox(height: 15),
-              InputCustom(label: "Email", hint: "votre-nom@gmail.com", isEmail: true, controller: _emailController),
-              const SizedBox(height: 15),
-              InputCustom(label: "Mot de passe", hint: "Mot de passe", isPassword: true, controller: _passController),
-              const SizedBox(height: 15),
+              const Text(
+                "Inscription",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textMain,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Créer un compte",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: AppColors.textSub),
+              ),
+              const SizedBox(height: 24),
+
               InputCustom(
-                label: "Confirmer",
+                label: "Nom *",
+                hint: "Votre nom",
+                controller: _lastNameController,
+              ),
+              const SizedBox(height: 14),
+              InputCustom(
+                label: "Prénom *",
+                hint: "Votre prénom",
+                controller: _firstNameController,
+              ),
+              const SizedBox(height: 14),
+              InputCustom(
+                label: "Email *",
+                hint: "votre-email@gmail.com",
+                isEmail: true,
+                controller: _emailController,
+              ),
+              const SizedBox(height: 14),
+
+              // Date de naissance
+              GestureDetector(
+                onTap: _choisirDate,
+                child: AbsorbPointer(
+                  child: TextFormField(
+                    controller: _dateNaissanceController,
+                    decoration: InputDecoration(
+                      labelText: "Date de naissance *",
+                      hintText: "JJ/MM/AAAA",
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      suffixIcon: const Icon(
+                        Icons.calendar_today,
+                        color: AppColors.primary,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    validator: (v) => v == null || v.isEmpty
+                        ? "La date de naissance est obligatoire"
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Sexe
+              DropdownButtonFormField<String>(
+                value: _sexeSelectionne,
+                decoration: InputDecoration(
+                  labelText: "Sexe *",
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                hint: const Text("Choisissez votre sexe"),
+                items: _sexes
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (v) => setState(() => _sexeSelectionne = v),
+                validator: (v) =>
+                    v == null ? "Veuillez choisir votre sexe" : null,
+              ),
+              const SizedBox(height: 14),
+
+              // Téléphone facultatif
+              TextFormField(
+                controller: _telephoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: "Téléphone (facultatif)",
+                  hintText: "+229 XX XX XX XX",
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  prefixIcon: const Icon(Icons.phone, color: AppColors.primary),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Nationalité
+              DropdownButtonFormField<String>(
+                value: _nationaliteSelectionnee,
+                decoration: InputDecoration(
+                  labelText: "Nationalité *",
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                hint: const Text("Choisissez votre nationalité"),
+                items: _nationalites
+                    .map((n) => DropdownMenuItem(value: n, child: Text(n)))
+                    .toList(),
+                onChanged: (v) => setState(() => _nationaliteSelectionnee = v),
+                validator: (v) =>
+                    v == null ? "Veuillez choisir votre nationalité" : null,
+              ),
+              const SizedBox(height: 14),
+
+              InputCustom(
+                label: "Mot de passe *",
+                hint: "Minimum 8 caractères",
+                isPassword: true,
+                controller: _passController,
+              ),
+              const SizedBox(height: 14),
+              InputCustom(
+                label: "Confirmer le mot de passe *",
                 hint: "Confirmer le mot de passe",
                 isPassword: true,
                 controller: _confirmPassController,
-                validator: (value) => value != _passController.text ? "mot de passe incorrect" : null,
+                validator: (value) => value != _passController.text
+                    ? "Les mots de passe ne correspondent pas"
+                    : null,
               ),
-              const SizedBox(height: 15),
+              const SizedBox(height: 16),
+
+              // Conditions
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Checkbox(
                     value: _acceptTerms,
+                    activeColor: AppColors.primary,
                     onChanged: (v) => setState(() => _acceptTerms = v!),
                   ),
                   Expanded(
                     child: Text.rich(
                       TextSpan(
                         text: "J'accepte les politiques de ",
-                        style: const TextStyle(fontSize: 12, color: Colors.black),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black,
+                        ),
                         children: [
                           TextSpan(
                             text: "sécurités",
-                            style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                              fontWeight: FontWeight.bold,
+                            ),
                             recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const PolicyPage(
-                                      title: "Politiques de Sécurité",
-                                      content: """
+                              ..onTap = () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const PolicyPage(
+                                    title: "Politiques de Sécurité",
+                                    content: """
 POLITIQUE DE SÉCURITÉ DES SYSTÈMES
 
 1. PROTECTION DES ACCÈS
-L'accès à votre compte est protégé par un système de hachage cryptographique de pointe. Nous ne stockons jamais votre mot de passe en texte clair. Chaque tentative de connexion est surveillée pour détecter d'éventuelles activités suspectes ou des attaques par force brute.
+L'accès à votre compte est protégé par un système de hachage cryptographique de pointe. Nous ne stockons jamais votre mot de passe en texte clair.
 
 2. CHIFFREMENT DES DONNÉES
-Toutes les données échangées entre votre appareil et nos serveurs sont cryptées via le protocole TLS (Transport Layer Security) 1.3. Les données stockées sur nos serveurs sont également protégées par un chiffrement AES-256 bits au repos.
+Toutes les données échangées entre votre appareil et nos serveurs sont cryptées via le protocole TLS 1.3.
 
 3. INFRASTRUCTURE ET RÉSEAU
-Notre infrastructure est hébergée dans des datacenters hautement sécurisés, certifiés ISO 27001 et SOC 2. Nous utilisons des pare-feu applicatifs (WAF) et des systèmes de détection d'intrusion pour bloquer les menaces en temps réel.
+Notre infrastructure est hébergée dans des datacenters sécurisés. Nous utilisons des pare-feu applicatifs pour bloquer les menaces en temps réel.
 
 4. AUDITS ET MISES À JOUR
-Nous effectuons des tests d'intrusion réguliers et des scans de vulnérabilité. Les correctifs de sécurité sont appliqués immédiatement après leur sortie pour garantir que l'application est toujours protégée contre les dernières menaces connues.
+Nous effectuons des tests d'intrusion réguliers et des scans de vulnérabilité.
 
 5. RESPONSABILITÉ DE L'UTILISATEUR
-La sécurité est une responsabilité partagée. Nous vous encourageons à utiliser un mot de passe complexe et unique, et à ne jamais partager vos identifiants de connexion avec des tiers.
-                                """,
-                                    ),
+Nous vous encourageons à utiliser un mot de passe complexe et unique.
+""",
                                   ),
-                                );
-                              },
+                                ),
+                              ),
                           ),
                           const TextSpan(text: " et "),
                           TextSpan(
                             text: "confidentialités",
-                            style: const TextStyle(color: Colors.blue, decoration: TextDecoration.underline, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              decoration: TextDecoration.underline,
+                              fontWeight: FontWeight.bold,
+                            ),
                             recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const PolicyPage(
-                                      title: "Confidentialité",
-                                      content: """
-DÉCLARATION DE CONFIDENTIALITÉ ET RGPD
+                              ..onTap = () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const PolicyPage(
+                                    title: "Confidentialité",
+                                    content: """
+DÉCLARATION DE CONFIDENTIALITÉ
 
 1. COLLECTE DES INFORMATIONS
-Nous collectons uniquement les données strictement nécessaires au fonctionnement de l'application : nom, prénom, adresse e-mail et journaux techniques de connexion. Ces informations nous permettent de personnaliser votre expérience et d'assurer le support technique.
+Nous collectons uniquement les données nécessaires au fonctionnement de l'application.
 
 2. UTILISATION DES DONNÉES
-Vos données sont traitées uniquement pour les finalités suivantes :
-- Gestion de votre profil utilisateur.
-- Envoi de notifications liées à la sécurité du compte.
-- Analyse anonymisée pour l'amélioration de nos services.
+Vos données sont traitées uniquement pour la gestion de votre profil et les notifications de sécurité.
 
 3. PARTAGE DES DONNÉES
-Nous nous engageons formellement à ne jamais vendre, louer ou céder vos données personnelles à des tiers à des fins marketing ou publicitaires. Le partage de données n'intervient que si la loi l'exige ou pour le traitement de services tiers indispensables (ex: envoi d'emails).
+Nous ne vendons jamais vos données personnelles à des tiers.
 
 4. DURÉE DE CONSERVATION
-Vos données personnelles sont conservées tant que votre compte reste actif. En cas de demande de suppression ou d'inactivité prolongée (supérieure à 3 ans), vos informations sont définitivement effacées de nos serveurs sous 30 jours.
+Vos données sont conservées tant que votre compte reste actif.
 
-5. VOS DROITS (RGPD)
-Conformément à la réglementation, vous disposez d'un droit d'accès, de rectification, de portabilité et d'effacement de vos données. Pour exercer ces droits, vous pouvez nous contacter via la section support de l'application.
-
-6. COOKIES ET TRACEURS
-Nous utilisons uniquement des traceurs techniques essentiels à la navigation et à l'authentification. Aucun traceur publicitaire n'est implanté dans cette application sans votre accord préalable.
-                                """,
-                                    ),
+5. VOS DROITS
+Vous disposez d'un droit d'accès, de rectification et d'effacement de vos données.
+""",
                                   ),
-                                );
-                              },
+                                ),
+                              ),
                           ),
-                          const TextSpan(text: " de l'utilisation de l'application"),
+                          const TextSpan(
+                            text: " de l'utilisation de l'application",
+                          ),
                         ],
                       ),
                     ),
@@ -534,13 +989,23 @@ Nous utilisons uniquement des traceurs techniques essentiels à la navigation et
                 ],
               ),
               const SizedBox(height: 20),
+
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _handleRegister,
-                  child: _isLoading ? const CircularProgressIndicator() : const Text('S\'inscrire'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          "S'inscrire",
+                          style: TextStyle(fontSize: 15),
+                        ),
                 ),
               ),
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -561,7 +1026,10 @@ class ValidationInscription extends StatefulWidget {
 }
 
 class _ValidationInscriptionState extends State<ValidationInscription> {
-  final List<TextEditingController> _otpControllers = List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _otpControllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
   bool _isButtonEnabled = false;
   String _errorMessage = "";
   bool _isLoading = false;
@@ -570,7 +1038,13 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
   void initState() {
     super.initState();
     for (var c in _otpControllers) {
-      c.addListener(() => setState(() => _isButtonEnabled = _otpControllers.every((c) => c.text.length == 1)));
+      c.addListener(
+        () => setState(
+          () => _isButtonEnabled = _otpControllers.every(
+            (c) => c.text.length == 1,
+          ),
+        ),
+      );
     }
   }
 
@@ -581,12 +1055,21 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
       await ApiService.verifyEmail(email: widget.email, code: codeSaisi);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Compte validé avec succès !"), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text("Compte validé avec succès !"),
+          backgroundColor: AppColors.green,
+        ),
       );
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const Connexion()), (route) => false);
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const Connexion()),
+        (route) => false,
+      );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorMessage = e.toString().replaceAll('Exception: ', ''));
+      setState(
+        () => _errorMessage = e.toString().replaceAll('Exception: ', ''),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -595,13 +1078,37 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Validation")),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text("Validation"),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(30),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text("Veuillez entrer le code envoyé par email", textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Icon(
+              Icons.email_outlined,
+              size: 60,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Vérifiez votre email",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textMain,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Entrez le code à 6 chiffres envoyé par email",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSub),
+            ),
             const SizedBox(height: 30),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -615,28 +1122,36 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
                     keyboardType: TextInputType.number,
                     maxLength: 1,
                     onChanged: (v) {
-                      if (v.isNotEmpty && index < 5) FocusScope.of(context).nextFocus();
-                      if (v.isEmpty && index > 0) FocusScope.of(context).previousFocus();
+                      if (v.isNotEmpty && index < 5)
+                        FocusScope.of(context).nextFocus();
+                      if (v.isEmpty && index > 0)
+                        FocusScope.of(context).previousFocus();
                     },
-                    decoration: const InputDecoration(counterText: "", border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      counterText: "",
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 20),
             if (_errorMessage.isNotEmpty) ...[
-              Text(_errorMessage, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              Text(
+                _errorMessage,
+                style: const TextStyle(
+                  color: AppColors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 10),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                 onPressed: () {
                   setState(() => _errorMessage = "");
-                  for (var c in _otpControllers) {
-                    c.clear();
-                  }
+                  for (var c in _otpControllers) c.clear();
                   FocusScope.of(context).requestFocus(FocusNode());
                 },
-                child: const Text("Réessayer", style: TextStyle(color: Colors.white)),
+                child: const Text("Réessayer"),
               ),
             ],
             const SizedBox(height: 30),
@@ -644,9 +1159,15 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                  onPressed: (_isButtonEnabled && !_isLoading) ? _finaliserInscription : null,
-                  child: _isLoading ? const CircularProgressIndicator() : const Text("Valider"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                  ),
+                  onPressed: (_isButtonEnabled && !_isLoading)
+                      ? _finaliserInscription
+                      : null,
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text("Valider"),
                 ),
               ),
           ],
@@ -663,11 +1184,19 @@ class PolicyPage extends StatelessWidget {
   final String title;
   final String content;
   const PolicyPage({super.key, required this.title, required this.content});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: SingleChildScrollView(padding: const EdgeInsets.all(25), child: Text(content, textAlign: TextAlign.justify)),
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(25),
+        child: Text(content, textAlign: TextAlign.justify),
+      ),
     );
   }
 }
@@ -679,13 +1208,24 @@ class InputCustom extends StatefulWidget {
   final bool isEmail;
   final TextEditingController? controller;
   final String? Function(String?)? validator;
-  const InputCustom({super.key, required this.label, required this.hint, this.isPassword = false, this.isEmail = false, this.controller, this.validator});
+
+  const InputCustom({
+    super.key,
+    required this.label,
+    required this.hint,
+    this.isPassword = false,
+    this.isEmail = false,
+    this.controller,
+    this.validator,
+  });
+
   @override
   State<InputCustom> createState() => _InputCustomState();
 }
 
 class _InputCustomState extends State<InputCustom> {
   late bool _obscure;
+
   @override
   void initState() {
     super.initState();
@@ -697,18 +1237,33 @@ class _InputCustomState extends State<InputCustom> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(
+          widget.label,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.textMain,
+          ),
+        ),
         const SizedBox(height: 5),
         TextFormField(
           controller: widget.controller,
           obscureText: _obscure,
-          keyboardType: widget.isEmail ? TextInputType.emailAddress : TextInputType.text,
-          validator: widget.validator ??
+          keyboardType: widget.isEmail
+              ? TextInputType.emailAddress
+              : TextInputType.text,
+          validator:
+              widget.validator ??
               (value) {
                 if (value == null || value.isEmpty) return "Champ obligatoire";
                 if (widget.isEmail) {
-                  final bool gmailValid = RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@gmail\.com$").hasMatch(value);
-                  if (!gmailValid) return "gmail incorrect";
+                  final bool emailValid = RegExp(
+                    r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+                  ).hasMatch(value);
+                  if (!emailValid) return "Email invalide.";
+                }
+                // Mot de passe : juste 8 caractères minimum, rien d'autre
+                if (widget.isPassword && value.length < 8) {
+                  return "Mot de passe trop court (8 caractères minimum).";
                 }
                 return null;
               },
@@ -716,8 +1271,19 @@ class _InputCustomState extends State<InputCustom> {
             hintText: widget.hint,
             filled: true,
             fillColor: Colors.grey[100],
-            suffixIcon: widget.isPassword ? IconButton(icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility), onPressed: () => setState(() => _obscure = !_obscure)) : null,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+            suffixIcon: widget.isPassword
+                ? IconButton(
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                      color: AppColors.textSub,
+                    ),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
           ),
         ),
       ],
